@@ -2,6 +2,7 @@ import express from 'express'
 import cors from 'cors'
 import dotenv from "dotenv";
 import hCRouter from "./routes/healthcheck.routes.js";
+import authRouter from "./routes/auth.routes.js";
 const app = express()
 
 
@@ -21,6 +22,7 @@ let corsOptions={
 }
 app.use(cors(corsOptions))
 app.use("/api/v1/healthcheck",hCRouter )
+app.use("/api/v1/auth",authRouter )
 
 
 app.get('/', (req, res) => {

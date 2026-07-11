@@ -1,7 +1,8 @@
 import mongoose from 'mongoose';
 import bcrypt from 'bcrypt';
-const { Schema, model } = mongoose;
 import crypto from "node:crypto";
+import jwt from "jsonwebtoken";
+const { Schema, model } = mongoose;
 const userSchema = new Schema({
   avatar:{
     type:{
@@ -29,7 +30,7 @@ const userSchema = new Schema({
   password:{
     type:String,
     minLength: 4,
-    required:[true,"Password is required"],
+    required:[true,"Password is required & should be at least 4 characters long"],
   },
   isEmailVerified:{
     type:Boolean,
@@ -60,11 +61,11 @@ const userSchema = new Schema({
 
 }, {timestamps:true});
 //hashing password everytime password is modified using prehooks
-userSchema.pre("save",async function(next){
+userSchema.pre("save",async function(){
   if(this.isModified("password")){
-    this.password = await bcrypt.hashSync(this.password,10)
+    this.password = await bcrypt.hash(this.password,10)
   }
-  next()
+  
 })
 userSchema.methods.isPasswordMatched = async function(password){
   return await bcrypt.compare(password,this.password)

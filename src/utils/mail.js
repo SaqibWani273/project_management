@@ -38,7 +38,7 @@ const resetPasswordContent= (username,passwordRestLink) => {
 };
 
 ///options={email,subject,mailContent}
-const sendEmail = (options)=>{
+const sendEmail = async (options)=>{
 
   //A transporter is an object that handles the connection to 
   // your email service and sends messages on your behalf.

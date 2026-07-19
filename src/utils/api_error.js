@@ -5,11 +5,13 @@ class ApiError extends Error {
     this.message = message;
     this.success = false;
     this.errors = errors;
-    this.data = null;
+    this.data =data|| null;
     if(stack){
       this.stack = stack
     }else{
-      this.stack = Error.captureStackTrace(this, this.constructor);
+      // this.stack = Error.captureStackTrace(this, this.constructor);
+        Error.captureStackTrace(this, this.constructor); // no assignment — it self-mutates
+
     }
   }
 }

@@ -1,17 +1,23 @@
 class ApiError extends Error {
-  constructor(code, message = "An UnExpected Error Occured", data,errors,stack="") {
+  constructor(
+    code,
+    message = "An unexpected error occurred",
+    data = null,
+    errors = [],
+    stack
+  ) {
     super(message);
-    this.code = code;
-    this.message = message;
-    this.success = false;
-    this.errors = errors;
-    this.data =data|| null;
-    if(stack){
-      this.stack = stack
-    }else{
-      // this.stack = Error.captureStackTrace(this, this.constructor);
-        Error.captureStackTrace(this, this.constructor); // no assignment — it self-mutates
 
+    this.name = this.constructor.name;
+    this.code = code;
+    this.success = false;
+    this.data = data;
+    this.errors = errors;
+
+    if (stack) {
+      this.stack = stack;
+    } else {
+      Error.captureStackTrace(this, this.constructor);
     }
   }
 }

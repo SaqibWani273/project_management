@@ -4,6 +4,7 @@ import User from "../db/user.models.js";
 import ApiError from "../utils/api_error.js";
 import { sendEmail, registerEmailContent } from "../utils/mail.js"
 import ApiResponse from "../utils/api_response.js";
+import crypto from "node:crypto";
 
 const regsiterUser = asyncHandler(async (req, res) => {
   /* Complete following steps
@@ -54,7 +55,8 @@ const regsiterUser = asyncHandler(async (req, res) => {
   //3.3 
   const { unHashedToken, hashedToken, tokenExpiry } = user.generateTemporaryToken();
   user.emailVerificationToken = hashedToken;
-  user.emailVerificationTokenExpiry = tokenExpiry;
+  user.forgotPasswordTokenExpiryDate = tokenExpiry;
+  user.lastEmailVerificationSentAt = Date.now();
   await user.save({
     validateBeforeSave: false
   });
@@ -63,11 +65,11 @@ const regsiterUser = asyncHandler(async (req, res) => {
     email: user.email,
     subject: "Email Verification",
 
-    mailContent: registerEmailContent(user.username, `${req.protocol}://${req.get("host")}/api/v1/users/verify-email/${unHashedToken}`)
+    mailContent: registerEmailContent(user.username, `${req.protocol}://${req.get("host")}/api/v1/auth/verify-email/${unHashedToken}`)
   })
 
   const createdUser = await User.findById(user._id).
-    select("-password -emailVerificationToken -emailVerificationTokenExpiry -refreshToken");
+    select("-password -emailVerificationToken -forgotPasswordTokenExpiryDate -refreshToken");
   if (!createdUser) {
     throw new ApiError(500, "Error in creating user")
   }
@@ -99,9 +101,13 @@ const loginUser = asyncHandler(async (req, res) => {
   if (!pwMatches) {
     throw new ApiError(409, "InValid Password")
   }
+  if (!userInDb.isEmailVerified) {
+    throw new ApiError(409, "Email not Verified yet")
+  }
   const accessToken = userInDb.getJwtToken();
   const refreshToken = userInDb.getJwtRefreshToken();
 
+  // get all the user info without password,emailVerificationToken,etc
   const loggedInUser = await User.findById(userInDb._id).
     select("-password -emailVerificationToken -emailVerificationTokenExpiry -refreshToken");
   const cookieOptions = {
@@ -117,4 +123,124 @@ const loginUser = asyncHandler(async (req, res) => {
         refreshToken: refreshToken
       }))
 })
-export { regsiterUser, loginUser }
+const logoutUser = asyncHandler(async (req, res) => {
+  await User.findByIdAndUpdate(req.user._id, {
+    $set: {
+      refreshToken: null
+    }
+  });
+  const cookieOptions = {
+    httpOnly: true,
+    secure: true
+  };
+  return res.status(200).
+    clearCookie("accessToken", cookieOptions).
+    clearCookie("refreshToken", cookieOptions).
+    json(new ApiResponse(200, "User Logged-out Successfully"))
+
+})
+const me = asyncHandler(async (req, res) => {
+  return res.json(new ApiResponse(200,
+    "Profile Info Fetched Successfully", {
+    "user": req.user
+  }))
+})
+const changePassowrd = asyncHandler(async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+  const userInDb = await User.findById(req.user._id);
+  const pwMatches = await userInDb.isPasswordMatched(currentPassword);
+  if (!pwMatches) {
+    throw new ApiError(409, "Current password is incorrect")
+  }
+  if (currentPassword == newPassword) {
+    throw new ApiError(409, "Please enter a different new password")
+  }
+  userInDb.password = newPassword;
+  await userInDb.save();
+
+  return res.status(200).json(
+    new ApiResponse(200, "Password changed Successdully",)
+  )
+})
+const refreshAccessToken = asyncHandler(async (req, res) => {
+
+})
+const verifyEmail = asyncHandler(async (req, res) => {
+  const { verificationToken } = req.params;
+  if (!verificationToken) {
+    throw new ApiError(409, " Verification Token is Needed")
+  }
+  //verificationToken is unhashed
+  const hashedToken = crypto.createHash("sha256").update(verificationToken).digest("hex");
+  const userInDb = await User.findOne({
+    emailVerificationToken: hashedToken,
+    emailVerificationTokenExpiryDate: { $gt: Date.now() }
+  });
+  if (!userInDb) {
+    throw new ApiError(404, "Invalid Verification Token or Token Expired")
+  }
+  userInDb.isEmailVerified = true;
+
+  //optional but cleans db data
+  userInDb.emailVerificationToken = null;
+  userInDb.emailVerificationTokenExpiryDate = null;
+
+  //no need to encrypt password or do other validations
+  await userInDb.save({ validateBeforeSave: false });
+  return res.status(200).
+    json(new ApiResponse(200, "Email Verified Successfully. You can now Login"))
+
+})
+const forgotPassword = asyncHandler(async (req, res) => {
+
+})
+const resetPassword = asyncHandler(async (req, res) => {
+
+})
+const resendEmailVerification = asyncHandler(async (req, res) => {
+  const { userId } = req.body;
+  if (!userId) {
+    throw new ApiError(409, "UserId is needed");
+  }
+  const userInDb = await User.findById(userId);
+  if (!userInDb) {
+    throw new ApiError(404, "UserId not found, enter a proper id");
+  }
+  if (userInDb.isEmailVerified) {
+    throw new ApiError(409, "Email Already Verified");
+  }
+
+  // Ensure the interval is treated as a number
+  const resendInterval = Number(process.env.EMAIL_RESEND_INTERVAL) || 3;
+
+  // Calculate difference in milliseconds, then convert to minutes
+  const timeDiffInMs = Date.now() - userInDb.lastEmailVerificationSentAt.getTime();
+  const timeDiffInMinutes = timeDiffInMs / (1000 * 60);
+
+  // Round up to give the user a clear "wait time" (e.g., 1 minute instead of 0.33)
+  const remainingWaitTime = Math.ceil(resendInterval - timeDiffInMinutes);
+
+  if (timeDiffInMinutes < resendInterval) {
+    throw new ApiError(
+      429, // 429 Too Many Requests is more semantically correct than 409
+      `Please wait ${remainingWaitTime} minute(s) before requesting another verification email.`
+    );
+  }
+  const { unHashedToken, hashedToken, tokenExpiry } = userInDb.generateTemporaryToken();
+  userInDb.emailVerificationToken = hashedToken;
+  userInDb.emailVerificationTokenExpiry = tokenExpiry;
+  userInDb.lastEmailVerificationSentAt = Date.now();
+  await userInDb.save({
+    validateBeforeSave: false
+  });
+  //3.4 send email 
+  sendEmail({
+    email: userInDb.email,
+    subject: "Email Verification",
+
+    mailContent: registerEmailContent(userInDb.username, `${req.protocol}://${req.get("host")}/api/v1/auth/verify-email/${unHashedToken}`)
+  })
+  return res.status(200).
+    json(new ApiResponse(200, "Email Verification Sent again"))
+})
+export { regsiterUser, loginUser, logoutUser, me, changePassowrd, verifyEmail, resendEmailVerification }

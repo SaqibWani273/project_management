@@ -16,4 +16,20 @@ const userLoginValidator = () => {
     body("password").trim().not().isEmpty().isLength({ min: 6 }).withMessage("Please enter a password with at least 6 characters"),
   ]
 }
-export { userRegistorValidator, userLoginValidator }
+const changePasswordValidator = () => {
+  return [
+    body("currentPassword").trim().not().isEmpty().isLength({ min: 6 }).withMessage("Please enter a password with at least 6 characters"),
+    body("newPassword").trim().not().isEmpty().isLength({ min: 6 }).withMessage("Please enter a password with at least 6 characters"),
+  ]
+}
+const resendEmailValidator = () => {
+  return [
+    body("userId")
+      .notEmpty()
+      .withMessage("User ID is required")
+      .isMongoId()
+      .withMessage("Invalid User ID"),
+
+  ]
+}
+export { userRegistorValidator, userLoginValidator, changePasswordValidator, resendEmailValidator }

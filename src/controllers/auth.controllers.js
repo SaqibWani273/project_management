@@ -2,7 +2,7 @@
 import { asyncHandler } from "../utils/handlers.js";
 import User from "../db/user.models.js";
 import ApiError from "../utils/api_error.js";
-import { sendEmail, registerEmailContent } from "../utils/mail.js"
+import { sendEmail, registerEmailContent,resetPasswordContent } from "../utils/mail.js"
 import ApiResponse from "../utils/api_response.js";
 import crypto from "node:crypto";
 import jwt from "jsonwebtoken";
@@ -243,12 +243,12 @@ const forgotPassword = asyncHandler(async (req, res) => {
   if (!userEmail) {
     throw new ApiError(409, "Email Send karo sir !!!")
   }
-  const userInDb = User.findOne({ email: userEmail });
+  const userInDb =await User.findOne({ email: userEmail });
   if (!userInDb) {
     throw new ApiError(404, "No such Person with this email in our DB")
   }
   //generate tokens 
-  const { unHashedToken, hashedToken, tokenExpiry } = user.generateTemporaryToken();
+  const { unHashedToken, hashedToken, tokenExpiry } = userInDb.generateTemporaryToken();
   userInDb.forgotPasswordToken = hashedToken;
   userInDb.forgotPasswordTokenExpiryDate = tokenExpiry;
   await userInDb.save({ validateBeforeSave: false })
@@ -256,17 +256,42 @@ const forgotPassword = asyncHandler(async (req, res) => {
   // send email with unhashed forgotPasswordToken & reset-password redirect url
 
   sendEmail({
-    email: user.email,
+    email: userInDb.email,
     subject: "Forgot Password",
     //user gets navigated to webpage or mobile screen where he'd enter new password
     //  & then hit resetPassword endpoint
-    mailContent: resetPasswordContent(user.username, `${process.env.RESET_PASSWORD_URL}/${unHashedToken}`)
+    mailContent: resetPasswordContent(userInDb.username, `${process.env.RESET_PASSWORD_URL}/${unHashedToken}`)
   });
 
   return res.status(200).json(new ApiResponse(200, "Reset Password mail sent. Check your email"))
 
 
 })
+/* This endpoint is used by the Frontend.
+ When the user clicks the link in their email, 
+ the frontend uses this GET request to verify with 
+the backend if the token is valid before showing the "Reset Password" form. */
+const getResetPasswordToken = asyncHandler(async (req, res) => {
+
+  const { unHashedToken } = req.params;
+  if(!unHashedToken){
+    throw new ApiError(409, "Token is Needed")
+  }
+  const hashedToken = crypto.createHash("sha256").
+  update(unHashedToken).digest("hex");
+  const userInDb = await User.findOne({
+    forgotPasswordToken: hashedToken,
+    forgotPasswordTokenExpiryDate: { $gt: Date.now() }
+  });
+  if (!userInDb) {
+    throw new ApiError(404, "Invalid Token or Token Expired")
+  }
+  return res.status(200).json(new ApiResponse(200, "Token is Valid"))
+})
+/* 
+This endpoint is used by the Form Submission.
+ When the user fills in the new password and clicks "Submit," 
+ the frontend sends the password data here to actually perform the update. */
 const resetPassword = asyncHandler(async (req, res) => {
   try {
 
@@ -345,4 +370,8 @@ const resendEmailVerification = asyncHandler(async (req, res) => {
   return res.status(200).
     json(new ApiResponse(200, "Email Verification Sent again"))
 })
-export { regsiterUser, loginUser, logoutUser, me, changePassowrd, verifyEmail, resendEmailVerification, refreshAccessToken }
+export { 
+  regsiterUser, loginUser, logoutUser,me,changePassowrd,
+   verifyEmail, resendEmailVerification,refreshAccessToken,
+   getResetPasswordToken,resetPassword,forgotPassword,
+   }

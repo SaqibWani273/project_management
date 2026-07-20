@@ -32,4 +32,5 @@ const resendEmailValidator = () => {
 
   ]
 }
+
 export { userRegistorValidator, userLoginValidator, changePasswordValidator, resendEmailValidator }
